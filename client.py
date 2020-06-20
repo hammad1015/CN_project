@@ -2,6 +2,19 @@ import socket as sc
 import argparse
 import select
 import time
+import server
+
+
+interval    = server.interval
+#file        = open(args.o, 'w')
+address     = server.host_ip
+ports       = server.ports
+#resume      = args.r
+    
+
+PKT_SIZE = server.PKT_SIZE
+
+
 
 def setup():
 
@@ -15,7 +28,7 @@ def setup():
         parser = argparse.ArgumentParser()
         parser.add_argument('-i', required= True, type= int, help= 'Time interval between status reporting (seconds)')
         parser.add_argument('-o', required= True, type= str, help= 'Output address')
-        parser.add_argument('-a', required= True, type= str, help= 'Server IP adresses' , nargs= '+')
+        parser.add_argument('-a', required= True, type= str, help= 'Server IP adress')
         parser.add_argument('-p', required= True, type= str, help= 'Server port numbers', nargs= '+')
 
         parser.add_argument('-r', help= 'Resume existing progress', action= 'store_true')
@@ -25,7 +38,7 @@ def setup():
         
         interval    = args.i
         file        = open(args.o, 'w')
-        addresses   = args.n
+        address     = args.a
         ports       = args.p
         resume      = args.r
 
@@ -33,37 +46,39 @@ def setup():
 
     except Exception as e: print(e); quit() 
 
-def init_sockets():
-
-    global sockets
-
-    sockets = []
-    for IP_port in zip(addresses, ports):
-        
-        socket = sc.socket()
-        socket.connect(IP_port)
-        sockets.append(socket)
+    
 
 
 if __name__ == '__main__':
 
     #setup()
-    ports   = [10000, 10010, 10020, 10030]
-    addresses   = [sc.gethostname()]*len(ports)
 
 
-    init_sockets()
+    n = len(ports)
+
+    sockets = [
+        sc.socket()
+        for _ in range(n)
+    ]
+
+
+    for i in range(n): 
+        
+        sockets[i].connect(
+            (address, ports[i])
+        )
+        data = bytes((i, n))
+        sockets[i].send(data)
+
+
     while True:
         
         readable, writable, exceptional = select.select(sockets, [], sockets)
 
+        #time.sleep(1)
+
         for socket in readable:
             
-            #time.sleep(0.1)
-            msg = socket.recv(2)
-            if not msg: continue
+            msg = socket.recv(PKT_SIZE)
             print(msg)
 
-        #if not msg: break
-
-    print('done')

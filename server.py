@@ -3,7 +3,20 @@ import argparse
 import threading
 import time
 import utils
+import random
 print(50*'***', '\n')
+
+
+interval= 2
+ports   = [8000 + x for x in range(5)]
+N       = len(ports)
+file    = open('test.txt', 'rb')
+size    = file.seek(0, 2)
+
+host_ip = sc.gethostname()
+PKT_SIZE = 1
+
+
 
 def setup():
 
@@ -32,87 +45,61 @@ def setup():
     except Exception as e: print(e); quit() 
 
 
-def init_sockets():
-
-    global host_ip
-    global sockets
-
-    host_ip = sc.gethostname()
-    
-    sockets = []
-    for port in ports:
-
-        socket = sc.socket()
-        socket.bind((host_ip, port))
-        socket.listen()
-        sockets.append(socket)
-
-
-def init_threads():
-
-    global threads
-
-    threads = []
-    for socket in sockets:
-        thread = threading.Thread(target= connect, args= [socket], daemon= True)
-
-        thread_map[socket] = thread
-
-
-    global thread_map
-
-    thread_map = {
-        socket: threading.Thread(target= connect, args= [socket], daemon= True)
-        for socket in sockets
-    }
-    #thread = 
-    #thread.daemon = True
-    #threads.append(thread)
-
-def connect(socket):
-
-    global threads
-
-    client, address = socket.accept()
-    #print(4*'\t', 'connected')
-
-    thread = threading.Thread(target= connect, args= [socket])
-    thread.daemon = True
-    threads.append(thread)
-
-    thread = threading.Thread(target= send, args= [client])
-    thread.daemon = True
-    threads.append(thread)
-    client_map[client] = thread
-
-
-
-
-def send(client, address):
-
-    data = file.read(pkt_size).encode('utf-8')
-    #print(4*'\t', 'sending')
-    #global data
-
-    while True and data: 
-        #d = data.pop().encode('utf-8')
-        data = get_data() #file.read(pkt_size).encode('utf-8')
-        print(data)
-        client.send(data)
-
-
 def report():
 
+    s = '\n'
+    for E, i in indices.items():
+
+        status = 'alive'    if threads[i].is_alive() else 'dead'
+        action = 'shutdown' if threads[i].is_alive() else 'Start'
+
+        s += f'Server {i}: Port: {ports[i]} Status: {status}, To {action} Server {i} Enter: {E} \n'
+
+    utils.clear_console()
+    print(s, end= '\n\n>>')
+
+
+def listen(socket, port):
+
+    global host_ip
+
+    socket.bind((host_ip, port))
+    socket.listen()
+
     while True:
-        time.sleep(2)
-        s = ''
-        for i, p in enumerate(ports):
+        
+        client, address = socket.accept()
+        
+        i, n = tuple(client.recv(50))
 
-            #i += 1
-            s += f'Server {i}: Port: {p} Status: <dead/alive>, To Shutdown Server {i} Enter: E{i}\n'
+        thread = threading.Thread(target= send, args= [client, i, n], daemon= True).start()
 
-        utils.clear_console()
-        print(s)
+
+
+
+
+def send(client, i, n):
+
+
+    start  = (size//n) * i
+    finish = (size//n) * (i+1)
+
+    for pointer in range(start, finish, PKT_SIZE):
+
+        with threading.Lock(): 
+            file.seek(pointer)
+            data = file.read(PKT_SIZE)
+        
+        print(data)
+        
+        pointer += PKT_SIZE
+        if not data: break
+        time.sleep(1)
+        client.send(data)
+        #print(data)
+
+
+
 
 
 
@@ -121,38 +108,21 @@ if __name__ == '__main__':
 
 
     #setup()
-    interval= 0.2
-    ports   = [10000, 10010, 10020, 10030]
-    n       = len(ports)
-    file    = open('test.txt', 'r')
-    clients = []
-    pkt_size = 8
-    data = '0 1 2 3 4 5 6 7 8 9'.split()
 
-    def foo():
-        while True:
-            print(input())
 
-    init_sockets()                                                      # initialized and bound sockets
-    init_threads()                                                      # initialized threads listiening for connections
-    threading.Thread(target= report, daemon= True).start()              # started thread for reporting metrics
-    threading.Thread(target= foo, daemon= True).start()
+    threads = [
+        threading.Thread(target= listen, args= [sc.socket(), port], daemon= True)
+        for port in ports
+    ]
+
+    indices = {
+        f'E{i+1}': i
+        for i in range(N)
+    }
+
+    for thread in threads: thread.start()
 
     while True:
-        if threads: threads.pop(0).start()
 
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-    close_sockets()
+        report()
+        time.sleep(interval)

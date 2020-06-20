@@ -1,18 +1,14 @@
-import sys
 import os
 import platform
-import random
 
-server = 'abcd'
-client = 'wxyz'
+platform = platform.system()
 
 clear_map = {
-    'linux'     : 'clear',
-    'darwin'    : 'clear',
+    'Linux'     : 'clear',
+    'Darwin'    : 'clear',
     'Windows'   : 'cls'
 }
 
-platform = sys.platform
 
 def clear_console():
     

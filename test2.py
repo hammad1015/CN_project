@@ -2,27 +2,37 @@ import socket as sc
 import time
 
 host_ip = sc.gethostname()
-port = 8000
-msg = b'hello'
+ports   = [8000 + x for x in range(5)]
 
-socket = sc.socket(sc.AF_INET, sc.SOCK_STREAM)
-socket.bind((host_ip, port))
-socket.listen()
-map = {}
+file = open('test.txt', 'rb')
 
-client, address = socket.accept() 
-map[client] = 'lol'
-print('accepted')
+def listen(socket, port):
 
-for _ in range(5):
+    global host_ip
 
-    sc.socket.send(client, msg)
-    #print(client)
-    #print(socket)
-    #print('sent')
-    print(map)
+    socket.bind((host_ip, port))
+    socket.listen()
+
+    while True:
+        
+        client, address = socket.accept()
+
+        threading.Thread(target= send, args= [client], daemon= True).start()
+
+
+threads = [
+    threading.Thread(target= listen, args= [sc.socket, port], daemon= True)
+    for port in ports
+]
+
+
+
+while data := file.read(1):
+
+    sc.socket.send(client, data)
+    print('sent')
     time.sleep(1)
-    del map[client]
+
 
 client.close()
 socket.close()
