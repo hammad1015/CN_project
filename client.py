@@ -1,19 +1,22 @@
-import socket as sc
-import argparse
-import select
 import time
+import utils
 import server
+import select
+import argparse
+import threading
+import socket as sc
 
 
 interval    = server.interval
-#file        = open(args.o, 'w')
+file        = open('recieved.txt', 'wb')
 address     = server.host_ip
 ports       = server.ports
-#resume      = args.r
-    
 
-PKT_SIZE = server.PKT_SIZE
+lock = threading.Lock()    
 
+PKT_SIZE = 2**10 #server.PKT_SIZE
+logFile = open('clientLog.txt', 'w')
+n       = len(ports)
 
 
 def setup():
@@ -29,7 +32,7 @@ def setup():
         parser.add_argument('-i', required= True, type= int, help= 'Time interval between status reporting (seconds)')
         parser.add_argument('-o', required= True, type= str, help= 'Output address')
         parser.add_argument('-a', required= True, type= str, help= 'Server IP adress')
-        parser.add_argument('-p', required= True, type= str, help= 'Server port numbers', nargs= '+')
+        parser.add_argument('-p', required= True, type= int, help= 'Server port numbers', nargs= '+')
 
         parser.add_argument('-r', help= 'Resume existing progress', action= 'store_true')
 
@@ -42,43 +45,75 @@ def setup():
         ports       = args.p
         resume      = args.r
 
-        if len(a) != len(p): raise Exception('Error: length of -a should equal length of -p')
-
     except Exception as e: print(e); quit() 
 
-    
+def init():
 
+    global sockets
+    global ranges
+    global fileSize
 
-if __name__ == '__main__':
+    main = sc.socket()
+    main.connect((address, 9999))
+    fileSize = int.from_bytes(main.recv(5), 'big')
+    main.close()
 
-    #setup()
-
-
-    n = len(ports)
+    ranges = [(0, fileSize)]
 
     sockets = [
         sc.socket()
         for _ in range(n)
     ]
 
+    for socket, port in zip(sockets, ports):
+        socket.connect((address, port))
 
-    for i in range(n): 
-        
-        sockets[i].connect(
-            (address, ports[i])
-        )
-        data = bytes((i, n))
-        sockets[i].send(data)
+    
 
 
+def recieve(socket, start):
+
+    socket.send(start.to_bytes(5, 'big'))
+    socket.send(chunk.to_bytes(5, 'big'))
+
+    data = bytes()
     while True:
-        
-        readable, writable, exceptional = select.select(sockets, [], sockets)
 
-        #time.sleep(1)
+        msg = socket.recv(PKT_SIZE)
+        data += msg
+        #if not msg: break
 
-        for socket in readable:
-            
-            msg = socket.recv(PKT_SIZE)
-            print(msg)
+    print('recieved: ', len(data))
+    with lock:
 
+        file.seek(start)
+        file.write(data)
+
+
+
+
+
+
+
+
+if __name__ == '__main__':
+
+    #setup()
+    init()
+
+    while ranges:
+
+        i, j = ranges.pop(0)
+
+        chunk = (j - i) // len(sockets) + 1
+
+        threads = [
+            threading.Thread(target= recieve, args= [s, i * chunk])
+            for i, s in enumerate(sockets)
+        ]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join()
+
+
+    file.flush()
+    file.close()

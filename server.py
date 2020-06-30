@@ -1,27 +1,24 @@
 import socket as sc
 import argparse
 import threading
+import multiprocessing
 import time
 import utils
-import random
-print(50*'***', '\n')
 
 
-interval= 2
-ports   = [8000 + x for x in range(5)]
-N       = len(ports)
-file    = open('test.txt', 'rb')
-size    = file.seek(0, 2)
 
-host_ip = sc.gethostname()
-PKT_SIZE = 1
+
+interval    = 3
+ports       = [9000 + x for x in range(5)]
+N           = len(ports)
+file        = open('test.txt', 'rb')
 
 
 
 def setup():
 
     global interval
-    global n
+    global N
     global file
     global ports
     global clients
@@ -36,67 +33,104 @@ def setup():
         args = parser.parse_args()
 
         interval    = args.i
-        n           = args.n
-        file        = open(args.f, 'r')
+        N           = args.n
+        file        = open(args.f, 'rb')
         ports       = args.p
 
         if n != len(ports): raise Exception('Error: length of -p should equal -n')
 
     except Exception as e: print(e); quit() 
 
+def init():
+
+    global sockets
+    global indices
+    global processes
+    global fileSize
+    global lock
+    global host_ip
+
+    fileSize    = file.seek(0, 2)
+    lock        = threading.Lock()
+    host_ip     = sc.gethostname()
+
+    sockets = [
+        sc.socket()
+        for _ in range(N)
+    ]
+
+    indices = {
+        f'E{i}': i
+        for i in range(N)
+    }
+
+    for socket, port in zip(sockets, ports):
+        socket.bind((host_ip, port))
+        socket.listen()
+
+    processes = [
+        multiprocessing.Process(target= listen, args= [socket])
+        for socket in sockets
+    ]
+
+    for process in processes: process.start()    
 
 def report():
 
-    s = '\n'
-    for E, i in indices.items():
+    while True:
 
-        status = 'alive'    if threads[i].is_alive() else 'dead'
-        action = 'shutdown' if threads[i].is_alive() else 'Start'
+        s = '\n'
+        for E, i in indices.items():
 
-        s += f'Server {i}: Port: {ports[i]} Status: {status}, To {action} Server {i} Enter: {E} \n'
+            status = 'alive'    if processes[i].is_alive() else 'dead ' 
+            action = 'shutdown' if processes[i].is_alive() else 'Start   '
 
-    utils.clear_console()
-    print(s, end= '\n\n>>')
+            s += f'Server {i}: Port: {ports[i]} Status: {status}, To {action} Server {i} Enter: {E} \n'
+
+        utils.clear_console()
+        print(s, end= '\n\n>>')
+        time.sleep(interval)
+
+def shut():
+
+    while True:
+
+        command = input()
+
+        if command == 'Quit' : quit()
+        if command in indices:
+            i = indices[command]
+            alive = processes[i].is_alive()
+
+            if alive:
+                processes[i].terminate()
+            else: 
+                processes[i] = multiprocessing.Process(target= listen, args= [sockets[i]])
+                processes[i].start()
 
 
-def listen(socket, port):
-
-    global host_ip
-
-    socket.bind((host_ip, port))
-    socket.listen()
+def listen(socket):
 
     while True:
         
         client, address = socket.accept()
-        
-        i, n = tuple(client.recv(50))
 
-        thread = threading.Thread(target= send, args= [client, i, n], daemon= True).start()
+        threading.Thread(target= send, args= [client], daemon= True).start()
 
 
+def send(client):
+    
+    start = int.from_bytes(client.recv(5), 'big')
+    chunk = int.from_bytes(client.recv(5), 'big')
 
+    with lock:
 
+        file.seek(start)
+        data = file.read(chunk)
 
-def send(client, i, n):
+    client.send(data)
+    client.close()
 
-
-    start  = (size//n) * i
-    finish = (size//n) * (i+1)
-
-    for pointer in range(start, finish, PKT_SIZE):
-
-        with threading.Lock(): 
-            file.seek(pointer)
-            data = file.read(PKT_SIZE)
-        
-        print(data)
-        
-        pointer += PKT_SIZE
-        if not data: break
-        time.sleep(1)
-        client.send(data)
-        #print(data)
 
 
 
@@ -106,23 +140,20 @@ def send(client, i, n):
 
 if __name__ == '__main__':
 
-
     #setup()
+    init()
 
 
-    threads = [
-        threading.Thread(target= listen, args= [sc.socket(), port], daemon= True)
-        for port in ports
-    ]
+    threading.Thread(target= report, daemon= True).start()
+    threading.Thread(target= shut  , daemon= True).start()
 
-    indices = {
-        f'E{i+1}': i
-        for i in range(N)
-    }
 
-    for thread in threads: thread.start()
+    main = sc.socket()
+    main.bind((host_ip, 9999))
+    main.listen()
 
     while True:
 
-        report()
-        time.sleep(interval)
+        client, _ = main.accept()
+        client.send(fileSize.to_bytes(5, 'big'))
+        client.close()
