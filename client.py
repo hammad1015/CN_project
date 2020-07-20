@@ -8,15 +8,15 @@ import socket as sc
 
 
 interval    = server.interval
-file        = open('recieved.txt', 'wb')
-address     = server.host_ip
+file        = open('recieved.mp4', 'wb')
+address     = sc.gethostname()
 ports       = server.ports
 
 lock = threading.Lock()    
 
-PKT_SIZE = 2**10 #server.PKT_SIZE
-logFile = open('clientLog.txt', 'w')
+PKT_SIZE = 2**11
 n       = len(ports)
+PING = (1).to_bytes(8, 'big')
 
 
 def setup():
@@ -47,47 +47,115 @@ def setup():
 
     except Exception as e: print(e); quit() 
 
-def init():
+def init_connections():
 
     global sockets
-    global ranges
     global fileSize
+    global ranges
+    global progress
+    global speed
+    global total
 
     main = sc.socket()
     main.connect((address, 9999))
-    fileSize = int.from_bytes(main.recv(5), 'big')
+    fileSize = int.from_bytes(main.recv(8), 'big')
     main.close()
 
     ranges = [(0, fileSize)]
+    sockets = []
+    for port in ports:
 
-    sockets = [
-        sc.socket()
-        for _ in range(n)
+        try:
+            socket = sc.socket()
+            socket.connect((address, port))
+            socket.setblocking(0)
+            sockets.append(socket)
+
+        except Exception: pass
+    
+    progress = {
+        socket: 0
+        for socket in sockets
+    }
+
+    speed = {
+        socket: 0
+        for socket in sockets
+    }
+
+    total = {
+        socket: 0
+        for socket in sockets
+    }
+
+def report():
+
+    while True:
+        s = '\n'
+        for i, socket in enumerate(progress):
+
+            down = progress[socket]
+            full = total[socket]
+            sped = speed[socket]
+
+            s += f'Server {i}: {down}/{full},\t downloaad speed {sped:.2f} \n'
+        
+        s += f'Total: {sum(progress.values())}/{fileSize}'
+        utils.clear_console()
+        print(s)
+        time.sleep(1)
+
+def set_pointers(a, b):
+
+    global chunk
+    global starts
+
+    n = len(sockets)
+
+    chunk  = (b - a) // n + 1
+    starts = [
+        a + i*chunk
+        for i in range(n)
     ]
 
-    for socket, port in zip(sockets, ports):
-        socket.connect((address, port))
-
-    
+    for socket in sockets: total[socket] += chunk
 
 
 def recieve(socket, start):
 
-    socket.send(start.to_bytes(5, 'big'))
-    socket.send(chunk.to_bytes(5, 'big'))
-
     data = bytes()
-    while True:
 
-        msg = socket.recv(PKT_SIZE)
-        data += msg
-        #if not msg: break
+    try:
 
-    print('recieved: ', len(data))
+        socket.send(start.to_bytes(8, 'big'))
+        socket.send(chunk.to_bytes(8, 'big'))
+
+        time.sleep(0.1)
+        msg = True
+        while msg:
+
+            t = time.perf_counter()
+            time.sleep(0.005)
+            msg   = socket.recv(PKT_SIZE)
+            data += msg
+
+            progress[socket] += len(msg)
+            speed[socket] = t
+        
+        # only executed when pipeline breaks
+        sockets.remove(socket)
+        ranges.append(
+            (start + len(data), start + chunk)
+        )
+        
+    except BlockingIOError: pass
+    except Exception as e: print(type(e))
+        
     with lock:
 
         file.seek(start)
         file.write(data)
+        file.flush()
 
 
 
@@ -99,21 +167,24 @@ def recieve(socket, start):
 if __name__ == '__main__':
 
     #setup()
-    init()
+    init_connections()
+
+    threading.Thread(target= report, daemon= True).start()
 
     while ranges:
 
-        i, j = ranges.pop(0)
-
-        chunk = (j - i) // len(sockets) + 1
+        set_pointers(*ranges.pop(0))
 
         threads = [
-            threading.Thread(target= recieve, args= [s, i * chunk])
-            for i, s in enumerate(sockets)
+            threading.Thread(target= recieve, args= [socket, start])
+            for socket, start in zip(sockets, starts)
         ]
+
         for thread in threads: thread.start()
         for thread in threads: thread.join()
 
 
+
+    for socket in sockets: socket.close()
     file.flush()
     file.close()

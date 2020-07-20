@@ -9,9 +9,10 @@ import utils
 
 
 interval    = 3
-ports       = [9000 + x for x in range(5)]
+ports       = [8000 + x for x in range(5)]
 N           = len(ports)
-file        = open('test.txt', 'rb')
+file        = open('test.mp4', 'rb')
+lock = threading.Lock()
 
 
 
@@ -83,7 +84,7 @@ def report():
         for E, i in indices.items():
 
             status = 'alive'    if processes[i].is_alive() else 'dead ' 
-            action = 'shutdown' if processes[i].is_alive() else 'Start   '
+            action = 'shutdown' if processes[i].is_alive() else 'start   '
 
             s += f'Server {i}: Port: {ports[i]} Status: {status}, To {action} Server {i} Enter: {E} \n'
 
@@ -97,39 +98,42 @@ def shut():
 
         command = input()
 
-        if command == 'Quit' : quit()
         if command in indices:
             i = indices[command]
-            alive = processes[i].is_alive()
 
-            if alive:
+            if processes[i].is_alive():
                 processes[i].terminate()
-            else: 
-                processes[i] = multiprocessing.Process(target= listen, args= [sockets[i]])
-                processes[i].start()
+                #sockets[i].close()
+
+            else:
+                sockets[i] = sc.socket()
+                pass
+
 
 
 def listen(socket):
 
-    while True:
+    try:
+        while True:
         
-        client, address = socket.accept()
+            client, address = socket.accept()
 
-        threading.Thread(target= send, args= [client], daemon= True).start()
+            threading.Thread(target= send, args= [client], daemon= True).start()
 
+    except Exception as e: print(e)
 
 def send(client):
     
-    start = int.from_bytes(client.recv(5), 'big')
-    chunk = int.from_bytes(client.recv(5), 'big')
+    while True:
 
-    with lock:
+        start = int.from_bytes(client.recv(8), 'big')
+        chunk = int.from_bytes(client.recv(8), 'big')
 
-        file.seek(start)
-        data = file.read(chunk)
+        with lock:
+            file.seek(start)
+            data = file.read(chunk)
 
-    client.send(data)
-    client.close()
+        if not (client.send(data)): break
 
 
 
@@ -143,7 +147,6 @@ if __name__ == '__main__':
     #setup()
     init()
 
-
     threading.Thread(target= report, daemon= True).start()
     threading.Thread(target= shut  , daemon= True).start()
 
@@ -154,6 +157,12 @@ if __name__ == '__main__':
 
     while True:
 
-        client, _ = main.accept()
-        client.send(fileSize.to_bytes(5, 'big'))
-        client.close()
+        try:
+            client, _ = main.accept()
+            client.send(fileSize.to_bytes(8, 'big'))
+            client.close()
+
+        except KeyboardInterrupt: 
+
+            main.close()
+            quit()
